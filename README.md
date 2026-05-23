@@ -1,16 +1,20 @@
 # innovatech-backend
 
-Backend del sistema Innovatech basado en Node.js, Express y MySQL, preparado para contenedorización con Docker, persistencia de datos, despliegue en AWS EC2 y automatización CI/CD con GitHub Actions.
+Backend y base de datos del sistema Innovatech, implementados con Node.js, Express, MySQL, Docker, Amazon EC2, Amazon ECR y GitHub Actions.
+
+Este repositorio contiene la API backend del sistema, la configuración de base de datos MySQL y los archivos necesarios para su contenedorización, despliegue en AWS y automatización mediante CI/CD.
 
 ## Descripción general
 
-Este repositorio contiene los componentes backend del proyecto Innovatech:
+El proyecto forma parte de una arquitectura de tres capas:
 
-- `backend/`: API REST desarrollada con Node.js y Express.
-- `db/`: Base de datos MySQL contenerizada.
-- `docker-compose.yml`: Archivo para levantar el backend y la base de datos como servicios Docker.
+```txt
+Internet → Frontend → Backend → Base de datos
+````
 
-La API permite gestionar productos mediante operaciones CRUD y se conecta a una base de datos MySQL usando variables de entorno.
+En esta arquitectura, el backend se encarga de recibir las solicitudes provenientes del frontend, procesarlas y comunicarse con la base de datos MySQL. La base de datos almacena la información de productos utilizada por la aplicación.
+
+El backend fue desplegado en una instancia EC2 privada, mientras que la base de datos fue desplegada en una instancia EC2 privada independiente. La comunicación entre ambos componentes se controla mediante Security Groups.
 
 ## Estructura del repositorio
 
@@ -25,10 +29,15 @@ innovatech-backend/
 │   ├── Dockerfile
 │   └── init.sql
 │
+├── .github/
+│   └── workflows/
+│       ├── deploy-backend.yml
+│       └── deploy-db.yml
+│
 ├── docker-compose.yml
 ├── .gitignore
 └── README.md
-````
+```
 
 ## Tecnologías utilizadas
 
@@ -37,13 +46,14 @@ innovatech-backend/
 * MySQL
 * Docker
 * Docker Compose
-* AWS EC2
+* Amazon EC2
 * Amazon ECR
+* AWS Systems Manager
 * GitHub Actions
 
 ## Backend
 
-El backend corresponde a una API REST desarrollada con Node.js y Express. Se ejecuta en el puerto `3001`.
+El backend corresponde a una API REST desarrollada con Node.js y Express. Se ejecuta en el puerto `3001` y permite gestionar productos mediante operaciones CRUD.
 
 Endpoints principales:
 
@@ -56,36 +66,32 @@ DELETE /api/productos/:id
 GET    /api/health
 ```
 
-## Variables de entorno
+## Variables de entorno del backend
 
-El backend utiliza las siguientes variables de entorno para conectarse a la base de datos:
+El backend utiliza variables de entorno para conectarse a la base de datos:
 
 ```txt
 PORT=3001
-DB_HOST=db
+DB_HOST=<IP_PRIVADA_EC2_DB>
 DB_USER=alumno
 DB_PASSWORD=alumno123
 DB_NAME=tienda_perritos
 DB_PORT=3306
 ```
 
-Dentro de Docker Compose, el backend se conecta a la base de datos usando el nombre del servicio:
-
-```txt
-DB_HOST=db
-```
-
-Esto permite que ambos contenedores se comuniquen dentro de la red interna de Docker.
+Durante el despliegue en AWS, `DB_HOST` corresponde a la IP privada de la instancia EC2 donde se ejecuta la base de datos.
 
 ## Base de datos
 
-La base de datos utiliza MySQL 8 y se inicializa mediante el archivo:
+La base de datos utiliza MySQL y se inicializa mediante el archivo:
 
 ```txt
 db/init.sql
 ```
 
-El contenedor de base de datos define las siguientes credenciales:
+Este archivo permite crear la estructura inicial de la base de datos y cargar datos de prueba para validar el funcionamiento de la aplicación.
+
+Credenciales utilizadas en el entorno de despliegue:
 
 ```txt
 MYSQL_ROOT_PASSWORD=admin123
@@ -96,24 +102,24 @@ MYSQL_PASSWORD=alumno123
 
 ## Dockerfile del backend
 
-El Dockerfile del backend utiliza una imagen liviana de Node.js:
+El Dockerfile del backend utiliza una imagen base de Node.js:
 
 ```txt
 node:18-alpine
 ```
 
-Su función es:
+Su función principal es:
 
-1. Definir el directorio de trabajo `/app`.
-2. Copiar los archivos `package.json` y `package-lock.json` si existe.
+1. Crear el directorio de trabajo `/app`.
+2. Copiar los archivos de dependencias.
 3. Instalar dependencias de producción.
 4. Copiar el código fuente.
 5. Exponer el puerto `3001`.
-6. Ejecutar la aplicación con `npm start`.
+6. Ejecutar la aplicación mediante `npm start`.
 
 ## Dockerfile de base de datos
 
-El Dockerfile de la base de datos utiliza la imagen oficial:
+El Dockerfile de la base de datos utiliza la imagen oficial de MySQL:
 
 ```txt
 mysql:8
@@ -125,11 +131,11 @@ Además, copia el archivo `init.sql` en:
 /docker-entrypoint-initdb.d/
 ```
 
-Esto permite que el script SQL se ejecute automáticamente la primera vez que se crea el contenedor de MySQL.
+Esto permite que el script SQL se ejecute automáticamente al iniciar por primera vez el contenedor de MySQL.
 
 ## Docker Compose
 
-El archivo `docker-compose.yml` permite levantar el backend y la base de datos de forma conjunta.
+El archivo `docker-compose.yml` permite levantar backend y base de datos en un entorno contenerizado.
 
 Servicios definidos:
 
@@ -140,11 +146,28 @@ backend  → API Node.js / Express
 
 El archivo configura:
 
+* Servicios Docker.
 * Variables de entorno.
-* Puertos expuestos.
-* Red interna Docker.
-* Volumen persistente para MySQL.
+* Puertos.
+* Red interna.
+* Volumen persistente.
 * Dependencia entre backend y base de datos.
+
+## Persistencia de datos
+
+La persistencia de MySQL se implementa mediante el volumen Docker:
+
+```txt
+mysql_data
+```
+
+Este volumen se monta en:
+
+```txt
+/var/lib/mysql
+```
+
+De esta forma, los datos se conservan aunque el contenedor sea detenido o reiniciado.
 
 ## Ejecución con Docker Compose
 
@@ -160,92 +183,160 @@ Ver contenedores activos:
 docker ps
 ```
 
-Ver logs del backend:
-
-```bash
-docker logs innovatech-backend
-```
-
-Ver logs de la base de datos:
-
-```bash
-docker logs innovatech-db
-```
-
-Detener los contenedores:
+Detener contenedores:
 
 ```bash
 docker compose down
 ```
 
-No se debe usar `docker compose down -v` si se desea conservar la información de la base de datos, ya que esa opción elimina los volúmenes.
+> No usar `docker compose down -v` si se desea conservar la información de la base de datos, ya que esta opción elimina los volúmenes.
 
-## Puertos utilizados
+## Despliegue manual en AWS
 
-```txt
-Backend: 3001
-MySQL:   3306
+El despliegue manual fue realizado utilizando instancias EC2 separadas para backend y base de datos.
+
+### EC2 DB
+
+En la instancia `ec2-db` se construyó y ejecutó el contenedor MySQL:
+
+```bash
+docker build -t innovatech-db .
+docker volume create mysql_data
+docker run -d --name innovatech-db -p 3306:3306 -v mysql_data:/var/lib/mysql innovatech-db
 ```
 
-## Persistencia de datos
+Se verificó la correcta inicialización de la base de datos ingresando al contenedor y ejecutando:
 
-La persistencia se implementa mediante un volumen nombrado:
-
-```txt
-mysql_data
+```sql
+SHOW TABLES;
 ```
 
-Este volumen se monta en:
+Con ello se confirmó la existencia de la tabla `productos`.
 
-```txt
-/var/lib/mysql
+### EC2 Backend
+
+En la instancia `ec2-backend` se construyó y ejecutó el contenedor backend:
+
+```bash
+docker build -t innovatech-backend .
+docker run -d \
+  --name innovatech-backend \
+  -p 3001:3001 \
+  -e PORT=3001 \
+  -e DB_HOST=<IP_PRIVADA_EC2_DB> \
+  -e DB_USER=alumno \
+  -e DB_PASSWORD=alumno123 \
+  -e DB_NAME=tienda_perritos \
+  -e DB_PORT=3306 \
+  innovatech-backend
 ```
 
-Esto permite que los datos de MySQL se mantengan aunque los contenedores se detengan o se reinicien.
+Se validó el funcionamiento mediante:
 
-## Despliegue en AWS
+```bash
+curl http://localhost:3001/api/health
+curl http://localhost:3001/api/productos
+```
 
-El despliegue proyectado considera:
+## Amazon ECR
 
-* Una instancia EC2 para ejecutar backend y base de datos.
-* Docker instalado en la instancia EC2.
-* Imágenes Docker publicadas en Amazon ECR.
-* Despliegue automatizado mediante GitHub Actions.
-* Activación del pipeline al realizar push sobre la rama `deploy`.
+Se crearon repositorios privados en Amazon ECR para almacenar las imágenes Docker:
 
-## Registro de imágenes
+```txt
+innovatech-backend
+innovatech-db
+```
 
-Se utilizará Amazon ECR como registro de imágenes Docker, ya que el despliegue se realizará dentro del ecosistema AWS.
+Las imágenes fueron etiquetadas y publicadas en ECR con la etiqueta:
 
-Esta decisión permite mantener las imágenes dentro de la misma infraestructura cloud utilizada por el proyecto, facilitando la integración entre GitHub Actions, ECR y EC2.
+```txt
+latest
+```
 
-## Rama de despliegue
+Esto permite que las instancias EC2 puedan descargar las imágenes desde el registro privado de AWS durante los procesos de despliegue.
 
-La rama utilizada para el despliegue será:
+## CI/CD con GitHub Actions
+
+Este repositorio cuenta con workflows de GitHub Actions ubicados en:
+
+```txt
+.github/workflows/
+```
+
+Workflows configurados:
+
+```txt
+deploy-backend.yml
+deploy-db.yml
+```
+
+Estos workflows se ejecutan al realizar cambios sobre la rama:
 
 ```txt
 deploy
 ```
 
-Los workflows de GitHub Actions serán configurados para ejecutarse al hacer push sobre esta rama.
+El flujo automatizado realiza las siguientes acciones:
 
-## Seguridad y red
+1. Obtiene el código del repositorio.
+2. Configura credenciales temporales de AWS.
+3. Inicia sesión en Amazon ECR.
+4. Construye la imagen Docker correspondiente.
+5. Etiqueta la imagen con la URI de ECR.
+6. Publica la imagen en Amazon ECR.
+7. Ejecuta comandos en EC2 mediante AWS Systems Manager.
+8. Detiene el contenedor anterior.
+9. Descarga la nueva imagen.
+10. Levanta el contenedor actualizado.
 
-La base de datos no debe exponerse públicamente a Internet. La comunicación entre backend y base de datos ocurre mediante la red interna de Docker.
+## Secrets utilizados en GitHub Actions
 
-En AWS, se recomienda que:
+Para el funcionamiento de los workflows se configuraron los siguientes secrets en GitHub:
 
-* El puerto `3001` del backend solo sea accesible desde la instancia frontend o su Security Group.
-* El puerto `3306` de MySQL no sea abierto públicamente.
-* El acceso administrativo a EC2 se realice mediante SSH restringido o AWS Systems Manager Session Manager.
+```txt
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+AWS_SESSION_TOKEN
+AWS_REGION
+AWS_ACCOUNT_ID
+ECR_BACKEND_REPOSITORY
+ECR_DB_REPOSITORY
+EC2_BACKEND_INSTANCE_ID
+EC2_DB_INSTANCE_ID
+DB_HOST
+```
 
-## Estado actual del proyecto
+Estos valores permiten que GitHub Actions pueda autenticarse en AWS, publicar imágenes en ECR y desplegar los contenedores en EC2 mediante SSM.
 
-Actualmente el repositorio contiene:
+## Seguridad
 
-* Código base del backend.
-* Configuración de base de datos.
-* Dockerfile para backend.
-* Dockerfile para base de datos.
-* Docker Compose para levantar backend y MySQL.
-* Documentación técnica inicial.
+La arquitectura implementada utiliza Security Groups para controlar la comunicación entre capas:
+
+```txt
+Frontend → Backend → Base de datos
+```
+
+Reglas principales:
+
+* El backend acepta tráfico en el puerto `3001` únicamente desde el frontend.
+* La base de datos acepta tráfico MySQL en el puerto `3306` únicamente desde el backend.
+* La base de datos no se expone directamente a Internet.
+* El acceso administrativo se realiza mediante AWS Systems Manager Session Manager.
+
+## Estado final del proyecto
+
+El backend y la base de datos fueron desplegados correctamente en AWS. La API quedó operativa en la instancia EC2 backend y conectada a la base de datos MySQL ubicada en una instancia EC2 privada.
+
+El sistema fue validado mediante pruebas de endpoints, consulta de productos y funcionamiento completo del CRUD desde el frontend.
+
+Además, las imágenes Docker fueron publicadas en Amazon ECR y los workflows de GitHub Actions quedaron configurados para automatizar el proceso de construcción, publicación y despliegue.
+
+## Rama de despliegue
+
+La rama utilizada para despliegue es:
+
+```txt
+deploy
+```
+
+Los cambios realizados sobre esta rama activan los workflows de CI/CD del proyecto.
